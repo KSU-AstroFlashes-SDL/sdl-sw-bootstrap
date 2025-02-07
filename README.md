@@ -8,8 +8,8 @@ prerequisistes and utilities.
 
 Team members running Microsoft Windows SHOULD install the Windows Subsystem for Linux (Ubuntu distribution) and Microsoft VS Code.
 
-https://learn.microsoft.com/en-us/windows/wsl/install
-https://code.visualstudio.com/download
+* https://learn.microsoft.com/en-us/windows/wsl/install
+* https://code.visualstudio.com/download
 
 Once these have been installed, git clone this repository into Ubuntu and run the wsl-ubuntu-bootstrap script:
 
