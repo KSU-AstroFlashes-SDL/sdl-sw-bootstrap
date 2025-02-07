@@ -345,6 +345,15 @@ test "$(python Development/scratch/hello.py)" = "Hello, world."
 PATH="${HOME}/.local/bin:${PATH}" pipx install fprime-bootstrap
 
 ########################################################################
+# Install the Anchore Syft & Grype utilities.
+
+# Syft creates Software Bill of Materials (SBOM) reports.
+curl -sSfL https://raw.githubusercontent.com/anchore/syft/main/install.sh | sh -s -- -b ${HOME}/.local/bin
+
+# Grype uses Syft SBOM reports to perform vulnerability scans.
+curl -sSfL https://raw.githubusercontent.com/anchore/grype/main/install.sh | sh -s -- -b ${HOME}/.local/bin
+
+########################################################################
 # Install VS Code Server for Linux
 
 mkdir -p Development/Fprime
