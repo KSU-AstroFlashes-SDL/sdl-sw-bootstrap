@@ -1,0 +1,8 @@
+* text=auto
+
+*.{bat,[Bb][Aa][Tt]} text eol=crlf
+*.{cmd,[Cc][Mm][Dd]} text eol=crlf
+
+*.{ps1,[Pp][Ss]1} text eol=lf
+*.sh text eol=lf
+

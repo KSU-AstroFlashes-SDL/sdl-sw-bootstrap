@@ -1,0 +1,389 @@
+#!/usr/bin/env bash
+
+# How to run this script:
+# $ ./wsl-ubuntu-bootstrap | tee wsl-ubuntu-bootstrap.log
+# (On failure, review the log file with the subsection lead or deputy.)
+
+# Print an error message to stderr.
+# USAGE: __errmsg "error-message"
+function __errmsg ()
+{
+	1>&2 echo "${1}"
+}
+
+# Exit immediately with non-zero (i.e. failure) status code.
+# USAGE: __bail ["error-message" [status-code]]
+function __bail ()
+{
+	# print error message if not empty
+	test ! -z "${1}" && __errmsg "${1}"
+	# exit with status-code (if specified), else 1 (default)
+	exit ${2:-1}
+}
+
+# Exit immediately if any command fails.
+# Why?
+# A bootstrapping script should fail as early as possible so that the
+# user's environment is not corrupted. Failure of a bootstrapping script
+# usually indicates that it needs to be updated.
+set -o errexit
+# Print commands and their arguments as they are being executed.
+# Why?
+# A bootstrapping script should provide a COMPLETE log of what it has
+# done to the user's environment, especially in case it fails, so that
+# the user knows how to fix, undo, or augment the changes.
+set -o xtrace
+
+# This script must be executed from the current user's home directory.
+cd
+test "$(pwd)" = "${HOME}"
+
+# Cache the user's authentication credentials.
+# Why?
+# Several commands (e.g. apt-get) require elevated privileges to run
+# because they're changing the system. Authenticating NOW lets us fail
+# (e.g. on a mistyped password) before making any changes.
+sudo -v
+
+# Get the latest package definitions.
+sudo apt-get update --yes
+# Upgrade all installed packages to their latest supported versions.
+sudo apt-get upgrade --yes
+
+########################################################################
+# Install baseline development packages.
+#
+# (This includes ALL packages required by F', as well as requirements
+# for other 3rd party software not managed by apt, such as pyenv.)
+sudo apt-get install --yes \
+	7zip \
+	build-essential \
+	ca-certificates \
+	clang \
+	clang-format \
+	clang-tidy \
+	cmake \
+	curl \
+	git \
+	libbz2-dev \
+	libffi-dev \
+	liblzma-dev \
+	libncursesw5-dev \
+	libreadline-dev \
+	libsqlite3-dev \
+	libssl-dev \
+	libxml2-dev \
+	libxmlsec1-dev \
+	openssh-client \
+	pipx \
+	tk-dev \
+	xz-utils \
+	zlib1g-dev
+
+########################################################################
+# Install the 'pyenv' Python version manager.
+
+# Using pyenv allows the user to run multiple versions of Python
+# simultaneously. (This makes both testing and upgrading easier.)
+if [[ -z "${PYENV_ROOT}" ]]
+then
+	curl -fsSL https://pyenv.run | bash
+	cat > /tmp/pyenv.bashrc <<-EOF
+		export PYENV_ROOT="\${HOME}/.pyenv"
+		test -d "\${PYENV_ROOT}/bin" && export PATH="\${PYENV_ROOT}/bin:\${PATH}"
+		eval "\$(pyenv init - bash)"
+	EOF
+	source /tmp/pyenv.bashrc
+	grep -qv "export PYENV_ROOT" "${HOME}/.bashrc" && cat /tmp/pyenv.bashrc >> "${HOME}/.bashrc" || echo "pyenv already added to .bashrc"
+else
+	echo "pyenv already installed and initialized"
+fi
+[[ "$(which pyenv)" = "${HOME}/.pyenv/bin/pyenv" ]]
+pyenv doctor
+pyenv -v
+# Prefer the latest 3.x Python version to the system version.
+# (This will always install the latest 3.x CPython, but will only CHANGE
+# the global python if it is set to the special value 'system'.)
+pyenv install --skip-existing 3
+if [[ "$(pyenv global)" = "system" ]]
+then
+	pyenv global $(pyenv latest 3)
+fi
+# Display all available Pythons.
+pyenv versions
+
+########################################################################
+# Configure pipx (already installed by apt-get - see above)
+
+# Ensure utilities installed with pipx (e.g. fprime-bootstrap) are
+# found on user's PATH.
+# (I don't care for how `pipx ensurepath' puts .local/bin as the *last*
+# PATH component - this directory is commonly used to *override*
+# executables, so placing it last defeats that purpose.)
+#pipx ensurepath
+cat >>"${HOME}/.bashrc" <<EOF
+
+# for pipx ($(date))
+export PATH="\${HOME}/.local/bin:\${PATH}"
+eval "\$(register-python-argcomplete pipx)"
+EOF
+
+########################################################################
+# Generate authentication and signing keypairs.
+
+# ssh-keygen options explained:
+# -t ed25519: use Ed25519 algorithm (current SotA)
+# -a 101/-a 199: number of rounds used by the KDF (key derivation
+#                function); higher is better; 80-200 is reasonable;
+#                higher value is used here for digital signature key
+# -N '': use an empty passphrase (authentication key only)
+# -f <filename>: where to store the key pair
+# -C "comment": user-friendly label for the public key
+
+_ID_KEY_FN="${HOME}/.ssh/id_ed25519"
+_SIGN_KEY_FN="${HOME}/.ssh/sign_ed25519"
+
+function __gen_id_ed25519 ()
+{
+	local keyfn="${1:-$_ID_KEY_FN}"
+	ssh-keygen -t ed25519 -a 101 -N '' -f "${keyfn}" -C "${USER}@$(hostname -s)[$(basename ${_ID_KEY_FN})]"
+}
+
+function __gen_sign_ed25519 ()
+{
+	local keyfn="${1:-$_SIGN_KEY_FN}"
+	ssh-keygen -t ed25519 -a 199 -f "${keyfn}" -C "${USER}@$(hostname -s)[$(basename ${_SIGN_KEY_FN})]"
+}
+
+if [[ ! -d "${HOME}/.ssh" ]]
+then
+	__gen_id_ed25519
+	__gen_sign_ed25519
+else
+	if [[ ! -f "${_ID_KEY_FN}" ]]
+	then
+		__gen_id_ed25519
+	fi
+
+	if [[ ! -f "${_SIGN_KEY_FN}" ]]
+	then
+		__gen_sign_ed25519
+	fi
+fi
+# Display the public keys.
+set +x
+echo -e "\nUPLOAD THESE TO YOUR GITHUB.COM ACCOUNT:"
+echo      "########################################################################"
+cat       "${_ID_KEY_FN}.pub"
+cat       "${_SIGN_KEY_FN}.pub"
+echo -e   "########################################################################\n"
+set -x
+
+########################################################################
+# Configure Git.
+
+# Report the Git version.
+git --version
+
+git config --global init.defaultbranch main
+
+# This is a common shell scripting pattern
+# (unset -> while condition -> read).
+#	The idea is that the condition always fails for an unset var, so the
+#	script enters a prompting loop until the user provides acceptable
+#	input.
+unset _git_user_name
+while [[ -z "${_git_user_name}" ]]
+do
+	read -p "Your Name: " _git_user_name
+done
+git config --global user.name "${_git_user_name}"
+
+unset _git_user_email
+while [[ "${_git_user_email:(-9)}" != "@kent.edu" || ${#_git_user_email} -le 9 ]]
+do
+	read -p "Your KSU Email: " _git_user_email
+done
+git config --global user.email "${_git_user_email}"
+git config --global user.signingkey "${_SIGN_KEY_FN}.pub"
+
+git config --global gpg.format ssh
+git config --global commit.gpgsign true
+git config --global tag.gpgsign true
+
+# Display the Git global configuration.
+git config --global --list
+
+########################################################################
+# Ensure we can lint, format, and compile C++ sources.
+
+# NOTE: This construct (`cat >filename <<EOF') is called a "heredoc."
+# (Google "heredoc" or use AI prompt "explain heredoc" to learn more.)
+
+# https://releases.llvm.org/18.1.0/tools/clang/tools/extra/docs/clang-tidy/checks/list.html
+cat >"${HOME}/.clang-tidy" <<EOF
+---
+
+Checks: >-
+  bugprone-*,
+  cert-*,
+  clang-analyzer-*,
+  clang-diagnostic-*,
+  cppcoreguidelines-*,
+  hicpp-*,
+  llvm-*,
+  misc-*,
+  modernize-*,-modernize-use-trailing-return-type,-modernize-return-braced-init-list,
+  portability-*,
+  readability-*
+
+CheckOptions:
+  - key:   bugprone-unhandled-self-assignment.WarnOnlyIfThisHasSuspiciousField
+    value: false
+  - key:   llvm-namespace-comment.ShortNamespaceLines
+    value: 10
+  - key:   llvm-else-after-return.WarnOnUnfixable
+    value: false
+  - key:   modernize-loop-convert.MinConfidence
+    value: 'safe'
+  - key:   modernize-use-auto.MinTypeNameLength
+    value: 1
+  - key:   modernize-use-auto.RemoveStars
+    value: false
+  - key:   modernize-use-default-member-init.UseAssignment
+    value: true
+  - key:   modernize-use-transparent-functors.SafeMode
+    value: true
+  - key:   readability-else-after-return.WarnOnConditionVariables
+    value: false
+  - key:   readability-function-size.LineThreshold
+    value: 30
+  - key:   readability-function-size.NestingThreshold
+    value: 3
+  - key:   readability-function-size.ParameterThreshold
+    value: 5
+
+FormatStyle: 'file'
+EOF
+
+# https://releases.llvm.org/18.1.0/tools/clang/docs/ClangFormatStyleOptions.html
+cat >"${HOME}/.clang-format" <<EOF
+---
+BasedOnStyle: LLVM
+
+AlwaysBreakAfterReturnType: TopLevel
+BreakBeforeBraces: Linux
+IndentCaseBlocks: true
+EOF
+
+# We will establish the team convention of storing software development
+# assets under each user's ${HOME}/Development directory (on BOTH the
+# Windows host and the WSL Ubuntu guest.)
+mkdir -p Development/scratch
+cat >Development/scratch/hello.cpp <<EOF
+#include <iostream>
+
+int main() {
+    std::cout << "Hello, world." << std::endl;
+    return 0;
+}
+EOF
+
+# This results in MANY warnings (non-user code), but SHOULD complete
+# successfully.
+clang-tidy Development/scratch/hello.cpp -- -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
+
+# This is the "before" formatting.
+clang-format Development/scratch/hello.cpp
+# This results in warnings, but SHOULD complete successfully.
+clang-format -n Development/scratch/hello.cpp
+# Reformat and save the file.
+clang-format -i Development/scratch/hello.cpp
+# This is the "after" formatting.
+clang-format Development/scratch/hello.cpp
+
+# Report the Clang version.
+clang++ --version
+# Compile the test file.
+clang++ -Wall -std=c++11 Development/scratch/hello.cpp -o Development/scratch/hello
+# Run the test executable and verify its output.
+test "$(Development/scratch/hello)" = "Hello, world."
+
+########################################################################
+# Install the `ruff' Python linter & formatter.
+
+# (The temporary PATH modification here avoids an otherwise confusing
+# warning message when pipx is installed and configured in a bootstrap
+# script.)
+PATH="${HOME}/.local/bin:${PATH}" pipx install ruff
+
+cat >Development/scratch/hello.py <<EOF
+if (__name__ == '__main__'):
+  print('Hello, world.')
+EOF
+
+# (Again, this PATH modification is temporary; normal usage
+# post-bootstrap will just be `ruff ...'.)
+PATH="${HOME}/.local/bin:${PATH}" ruff check Development/scratch/hello.py
+PATH="${HOME}/.local/bin:${PATH}" ruff format Development/scratch/hello.py
+
+# Bytecode-compile all Python sources found under Development/scratch.
+# (This is more a curiosity than a necessity for us, but it does present
+# an interesting "teaching opportunity." Since our development efforts
+# are focused on C++ and Python, we should compare and contrast static
+# & dynamic typing and compiled vs. interpreted languages.)
+python -m compileall Development/scratch
+
+# Run the test script and verify its output.
+test "$(python Development/scratch/hello.py)" = "Hello, world."
+
+########################################################################
+# Install the `fprime-bootstrap' utility.
+
+# This temporary PATH modification is not necessary after the bootstrap
+# script has run and WSL Ubuntu has been restarted.
+PATH="${HOME}/.local/bin:${PATH}" pipx install fprime-bootstrap
+
+########################################################################
+# Install VS Code Server for Linux
+
+mkdir -p Development/Fprime
+cd Development/Fprime
+set +ex
+cat <<EOF
+
+The VS Code Server for Linux will now be installed. This will also
+launch VS Code itself.
+
+When prompted, please CHECK the box that says
+"Trust the authors of all files in the parent folder 'Development'"
+and then click the [Yes, I trust the authors] button.
+
+(If this step fails, it is most likely because you do not have VS Code
+installed. No problem - download & install it, then re-run this
+bootstrap script.)
+
+EOF
+read -p "(press <Enter> to continue...)" _Enter_key
+set -ex
+which code
+if (( $? == 0 ))
+then
+	code .
+fi
+
+########################################################################
+# General post-bootstrap housekeeping.
+
+sudo apt-get autoremove --yes
+sudo apt-get autoclean --yes
+
+# Issue the final instruction to restart the shell.
+set +x
+echo -e "\n!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!"
+echo      "PLEASE EXIT AND RESTART WSL UBUNTU TO COMPLETE THE BOOSTRAP PROCESS"
+echo -e   "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!\n"
+
+# Exit successfully.
+exit 0
+

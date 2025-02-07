@@ -1,0 +1,10 @@
+*.log
+*~
+.*.cache
+.vscode/
+desktop.ini
+.DS_Store
+ehthumbs.db
+$RECYCLE.BIN/
+Thumbs.db
+
