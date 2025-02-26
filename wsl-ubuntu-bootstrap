@@ -185,31 +185,36 @@ set -x
 # Report the Git version.
 git --version
 
-git config --global init.defaultbranch main
+# If a global Git configuration key doesn't have an expected value, then
+# set it (optionally prompting the user for the value).
+# USAGE: _gitconfig_check_set "gitconfig.key" ( "value" | ( "pattern" "prompt" ))"
+function _gitconfig_check_set {
+	local key="${1}"
+	local pattern="${2}"
+	local prompt="${3}"
 
-# This is a common shell scripting pattern
-# (unset -> while condition -> read).
-#	The idea is that the condition always fails for an unset var, so the
-#	script enters a prompting loop until the user provides acceptable
-#	input.
-unset _git_user_name
-while [[ -z "${_git_user_name}" ]]
-do
-	read -p "Your Name: " _git_user_name
-done
-git config --global user.name "${_git_user_name}"
+	local value="$(git config --global ${key})"
+	if [[ -z "${prompt}" ]]
+	then
+		# pattern is the desired literal value
+		git config --global "${key}" "${pattern}"
+	else
+		# pattern is a regex; user must provide a matching value
+		while [[ ! "${value}" =~ ${pattern} ]]
+		do
+			read -p "${prompt}" value
+		done
+		git config --global "${key}" "${value}"
+	fi
+}
 
-unset _git_user_email
-while [[ "${_git_user_email:(-9)}" != "@kent.edu" || ${#_git_user_email} -le 9 ]]
-do
-	read -p "Your KSU Email: " _git_user_email
-done
-git config --global user.email "${_git_user_email}"
-git config --global user.signingkey "${_SIGN_KEY_FN}.pub"
-
-git config --global gpg.format ssh
-git config --global commit.gpgsign true
-git config --global tag.gpgsign true
+_gitconfig_check_set init.defaultbranch main
+_gitconfig_check_set user.name "[A-Za-z0-9 ,'.-]+" "Your name (First Last): "
+_gitconfig_check_set user.email "[A-Za-z][A-Za-z0-9_]+@kent\.edu$" "Your KSU email (@kent.edu): "
+_gitconfig_check_set user.signingkey "${_SIGN_KEY_FN}.pub"
+_gitconfig_check_set gpg.format ssh
+_gitconfig_check_set commit.gpgsign true
+_gitconfig_check_set tag.gpgsign true
 
 # Display the Git global configuration.
 git config --global --list
