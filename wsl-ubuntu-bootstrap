@@ -6,15 +6,13 @@
 
 # Print an error message to stderr.
 # USAGE: __errmsg "error-message"
-function __errmsg ()
-{
+__errmsg() {
 	1>&2 echo "${1}"
 }
 
 # Exit immediately with non-zero (i.e. failure) status code.
 # USAGE: __bail ["error-message" [status-code]]
-function __bail ()
-{
+__bail() {
 	# print error message if not empty
 	test ! -z "${1}" && __errmsg "${1}"
 	# exit with status-code (if specified), else 1 (default)
@@ -143,31 +141,29 @@ EOF
 _ID_KEY_FN="${HOME}/.ssh/id_ed25519"
 _SIGN_KEY_FN="${HOME}/.ssh/sign_ed25519"
 
-function __gen_id_ed25519 ()
-{
+_gen_id_ed25519() {
 	local keyfn="${1:-$_ID_KEY_FN}"
 	ssh-keygen -t ed25519 -a 101 -N '' -f "${keyfn}" -C "${USER}@$(hostname -s)[$(basename ${_ID_KEY_FN})]"
 }
 
-function __gen_sign_ed25519 ()
-{
+_gen_sign_ed25519() {
 	local keyfn="${1:-$_SIGN_KEY_FN}"
 	ssh-keygen -t ed25519 -a 199 -f "${keyfn}" -C "${USER}@$(hostname -s)[$(basename ${_SIGN_KEY_FN})]"
 }
 
 if [[ ! -d "${HOME}/.ssh" ]]
 then
-	__gen_id_ed25519
-	__gen_sign_ed25519
+	_gen_id_ed25519
+	_gen_sign_ed25519
 else
 	if [[ ! -f "${_ID_KEY_FN}" ]]
 	then
-		__gen_id_ed25519
+		_gen_id_ed25519
 	fi
 
 	if [[ ! -f "${_SIGN_KEY_FN}" ]]
 	then
-		__gen_sign_ed25519
+		_gen_sign_ed25519
 	fi
 fi
 # Display the public keys.
@@ -188,7 +184,7 @@ git --version
 # If a global Git configuration key doesn't have an expected value, then
 # set it (optionally prompting the user for the value).
 # USAGE: _gitconfig_check_set "gitconfig.key" ( "value" | ( "pattern" "prompt" ))"
-function _gitconfig_check_set {
+_gitconfig_check_set() {
 	local key="${1}"
 	local pattern="${2}"
 	local prompt="${3}"
