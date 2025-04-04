@@ -63,6 +63,7 @@ sudo apt-get install --yes \
 	cmake \
 	curl \
 	git \
+	gnuradio \
 	libbz2-dev \
 	libffi-dev \
 	liblzma-dev \
@@ -357,7 +358,7 @@ curl -sSfL https://raw.githubusercontent.com/anchore/grype/main/install.sh | sh 
 ########################################################################
 # Install VS Code Server for Linux
 
-mkdir -p Development/Fprime
+mkdir -p Development/{Fprime,GNURadio}
 cd Development
 set +ex
 cat <<EOF
