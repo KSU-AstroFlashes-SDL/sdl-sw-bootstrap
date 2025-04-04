@@ -1,6 +1,7 @@
 *.log
 *~
 .*.cache
+*.swp
 .vscode/
 desktop.ini
 .DS_Store
