@@ -96,7 +96,7 @@ then
 else
 	echo "pyenv already installed and initialized"
 fi
-[[ "$(which pyenv)" = "${HOME}/.pyenv/bin/pyenv" ]]
+command -V pyenv
 pyenv doctor
 pyenv -v
 # Prefer the latest 3.x Python version to the system version.
@@ -358,7 +358,7 @@ curl -sSfL https://raw.githubusercontent.com/anchore/grype/main/install.sh | sh 
 # Install VS Code Server for Linux
 
 mkdir -p Development/Fprime
-cd Development/Fprime
+cd Development
 set +ex
 cat <<EOF
 
@@ -376,7 +376,7 @@ bootstrap script.)
 EOF
 read -p "(press <Enter> to continue...)" _Enter_key
 set -ex
-which code
+command -V code
 if (( $? == 0 ))
 then
 	code .
